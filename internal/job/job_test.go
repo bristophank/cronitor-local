@@ -1,79 +1,73 @@
-package job
+package job_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/cronitor-local/internal/job"
 )
 
 func TestNewJob(t *testing.T) {
-	j := NewJob("abc123", "backup-db", "0 2 * * *")
-
-	if j.ID != "abc123" {
-		t.Errorf("expected ID abc123, got %s", j.ID)
+	j := job.NewJob("test", "* * * * *", 5*time.Minute)
+	if j.Name != "test" {
+		t.Errorf("Name: got %q, want %q", j.Name, "test")
 	}
-	if j.Name != "backup-db" {
-		t.Errorf("expected Name backup-db, got %s", j.Name)
+	if j.Schedule != "* * * * *" {
+		t.Errorf("Schedule: got %q, want %q", j.Schedule, "* * * * *")
 	}
-	if j.Status != StatusUnknown {
-		t.Errorf("expected status unknown, got %s", j.Status)
-	}
-	if j.GracePeriod != 5*time.Minute {
-		t.Errorf("expected grace period 5m, got %v", j.GracePeriod)
-	}
-	if j.LastPing != nil {
-		t.Error("expected LastPing to be nil for new job")
+	if j.Status != job.StatusUnknown {
+		t.Errorf("Status: got %q, want %q", j.Status, job.StatusUnknown)
 	}
 }
 
 func TestRecordSuccess(t *testing.T) {
-	j := NewJob("abc123", "backup-db", "0 2 * * *")
+	j := job.NewJob("test", "* * * * *", time.Minute)
 	j.RecordSuccess()
-
-	if j.Status != StatusHealthy {
-		t.Errorf("expected status healthy, got %s", j.Status)
-	}
-	if j.LastPing == nil {
-		t.Error("expected LastPing to be set after success")
+	if j.Status != job.StatusOK {
+		t.Errorf("Status: got %q, want %q", j.Status, job.StatusOK)
 	}
 	if j.LastSuccess == nil {
-		t.Error("expected LastSuccess to be set after success")
+		t.Error("LastSuccess should not be nil")
 	}
-	if j.LastFailure != nil {
-		t.Error("expected LastFailure to remain nil after success")
+	if j.ConsecFails != 0 {
+		t.Errorf("ConsecFails: got %d, want 0", j.ConsecFails)
 	}
 }
 
 func TestRecordFailure(t *testing.T) {
-	j := NewJob("abc123", "backup-db", "0 2 * * *")
+	j := job.NewJob("test", "* * * * *", time.Minute)
 	j.RecordFailure()
-
-	if j.Status != StatusFailing {
-		t.Errorf("expected status failing, got %s", j.Status)
+	j.RecordFailure()
+	if j.Status != job.StatusFailed {
+		t.Errorf("Status: got %q, want %q", j.Status, job.StatusFailed)
 	}
-	if j.LastFailure == nil {
-		t.Error("expected LastFailure to be set after failure")
+	if j.ConsecFails != 2 {
+		t.Errorf("ConsecFails: got %d, want 2", j.ConsecFails)
+	}
+	j.RecordSuccess()
+	if j.ConsecFails != 0 {
+		t.Errorf("ConsecFails after success: got %d, want 0", j.ConsecFails)
 	}
 }
 
 func TestIsOverdue(t *testing.T) {
-	j := NewJob("abc123", "backup-db", "0 2 * * *")
+	j := job.NewJob("test", "* * * * *", 5*time.Minute)
 
-	// No ping yet — should not be overdue
-	if j.IsOverdue(time.Hour) {
-		t.Error("expected job with no ping to not be overdue")
+	// No last success — never overdue.
+	if j.IsOverdue(time.Now().Add(-10 * time.Minute)) {
+		t.Error("job with no success record should not be overdue")
 	}
 
-	// Recent ping — should not be overdue
+	// Successful run before the scheduled time — should be overdue.
 	j.RecordSuccess()
-	if j.IsOverdue(time.Hour) {
-		t.Error("expected recently pinged job to not be overdue")
+	past := time.Now().Add(-20 * time.Minute)
+	if !j.IsOverdue(past) {
+		t.Error("job should be overdue when last success is before scheduled run + grace period")
 	}
 
-	// Simulate old ping by backdating LastPing
-	past := time.Now().UTC().Add(-2 * time.Hour)
-	j.LastPing = &past
-	j.GracePeriod = 0
-	if !j.IsOverdue(time.Hour) {
-		t.Error("expected old job to be overdue")
+	// Scheduled run in the future — not yet overdue.
+	future := time.Now().Add(10 * time.Minute)
+	if j.IsOverdue(future) {
+		t.Error("job should not be overdue when next run is in the future")
 	}
 }

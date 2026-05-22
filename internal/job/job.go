@@ -4,67 +4,62 @@ import (
 	"time"
 )
 
-// Status represents the current state of a cron job
+// Status represents the last known state of a job.
 type Status string
 
 const (
-	StatusHealthy  Status = "healthy"
-	StatusFailing  Status = "failing"
-	StatusUnknown  Status = "unknown"
-	StatusRunning  Status = "running"
+	StatusUnknown Status = "unknown"
+	StatusOK      Status = "ok"
+	StatusFailed  Status = "failed"
 )
 
-// Job represents a monitored cron job
+// Job holds the configuration and runtime state of a monitored cron job.
 type Job struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	Schedule      string        `json:"schedule"`
-	Status        Status        `json:"status"`
-	LastPing      *time.Time    `json:"last_ping,omitempty"`
-	LastSuccess   *time.Time    `json:"last_success,omitempty"`
-	LastFailure   *time.Time    `json:"last_failure,omitempty"`
-	GracePeriod   time.Duration `json:"grace_period"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	Name        string        `json:"name"`
+	Schedule    string        `json:"schedule"`
+	GracePeriod time.Duration `json:"grace_period"`
+	LastRunAt   *time.Time    `json:"last_run_at,omitempty"`
+	LastSuccess *time.Time    `json:"last_success,omitempty"`
+	LastFailure *time.Time    `json:"last_failure,omitempty"`
+	Status      Status        `json:"status"`
+	ConsecFails int           `json:"consec_fails"`
 }
 
-// NewJob creates a new Job with default values
-func NewJob(id, name, schedule string) *Job {
-	now := time.Now().UTC()
+// NewJob creates a new Job with the given name, cron schedule, and grace period.
+func NewJob(name, schedule string, gracePeriod time.Duration) *Job {
 	return &Job{
-		ID:          id,
 		Name:        name,
 		Schedule:    schedule,
+		GracePeriod: gracePeriod,
 		Status:      StatusUnknown,
-		GracePeriod: 5 * time.Minute,
-		CreatedAt:   now,
-		UpdatedAt:   now,
 	}
 }
 
-// RecordSuccess marks the job as healthy and records the success time
+// RecordSuccess marks the job as having completed successfully.
 func (j *Job) RecordSuccess() {
 	now := time.Now().UTC()
-	j.LastPing = &now
+	j.LastRunAt = &now
 	j.LastSuccess = &now
-	j.Status = StatusHealthy
-	j.UpdatedAt = now
+	j.Status = StatusOK
+	j.ConsecFails = 0
 }
 
-// RecordFailure marks the job as failing and records the failure time
+// RecordFailure marks the job as having failed.
 func (j *Job) RecordFailure() {
 	now := time.Now().UTC()
-	j.LastPing = &now
+	j.LastRunAt = &now
 	j.LastFailure = &now
-	j.Status = StatusFailing
-	j.UpdatedAt = now
+	j.Status = StatusFailed
+	j.ConsecFails++
 }
 
-// IsOverdue returns true if the job has not pinged within its expected window
-func (j *Job) IsOverdue(expectedInterval time.Duration) bool {
-	if j.LastPing == nil {
+// IsOverdue returns true when the job has not succeeded within its grace period
+// past the expected next run time. If no successful run has been recorded the
+// job is never considered overdue.
+func (j *Job) IsOverdue(nextRunAt time.Time) bool {
+	if j.LastSuccess == nil {
 		return false
 	}
-	deadline := j.LastPing.Add(expectedInterval).Add(j.GracePeriod)
-	return time.Now().UTC().After(deadline)
+	deadline := nextRunAt.Add(j.GracePeriod)
+	return time.Now().UTC().After(deadline) && j.LastSuccess.Before(nextRunAt)
 }
