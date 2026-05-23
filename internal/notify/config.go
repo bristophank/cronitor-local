@@ -3,50 +3,50 @@ package notify
 import (
 	"fmt"
 	"os"
-	"strconv"
 )
 
-// Config holds all notification backend configuration loaded from environment.
+// Config holds optional alerting destinations loaded from environment variables.
 type Config struct {
-	SlackWebhookURL string
-	Email           EmailConfig
+	SMTPHost     string
+	SMTPPort     string
+	SMTPFrom     string
+	SMTPTo       string
+	SlackWebhook string
+	WebhookURL   string
 }
 
-// LoadConfig reads notification settings from environment variables.
-func LoadConfig() (*Config, error) {
-	cfg := &Config{}
-	cfg.SlackWebhookURL = os.Getenv("CRONITOR_SLACK_WEBHOOK")
-
-	cfg.Email.Host = os.Getenv("CRONITOR_SMTP_HOST")
-	cfg.Email.Username = os.Getenv("CRONITOR_SMTP_USER")
-	cfg.Email.Password = os.Getenv("CRONITOR_SMTP_PASS")
-	cfg.Email.From = os.Getenv("CRONITOR_ALERT_FROM")
-	cfg.Email.To = os.Getenv("CRONITOR_ALERT_TO")
-
-	portStr := os.Getenv("CRONITOR_SMTP_PORT")
-	if portStr == "" {
-		portStr = "587"
+// LoadConfig reads alerting configuration from environment variables.
+func LoadConfig() Config {
+	return Config{
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     os.Getenv("SMTP_PORT"),
+		SMTPFrom:     os.Getenv("SMTP_FROM"),
+		SMTPTo:       os.Getenv("SMTP_TO"),
+		SlackWebhook: os.Getenv("SLACK_WEBHOOK_URL"),
+		WebhookURL:   os.Getenv("ALERT_WEBHOOK_URL"),
 	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, fmt.Errorf("notify: invalid CRONITOR_SMTP_PORT %q: %w", portStr, err)
-	}
-	cfg.Email.Port = port
-	return cfg, nil
 }
 
-// BuildAlerter constructs a MultiAlerter from the loaded config,
-// including only backends that are fully configured.
-func BuildAlerter(cfg *Config) Alerter {
+// BuildAlerter constructs a MultiAlerter from the provided Config.
+// At least one destination must be configured or an error is returned.
+func BuildAlerter(cfg Config) (Alerter, error) {
 	var alerters []Alerter
-	if cfg.SlackWebhookURL != "" {
-		alerters = append(alerters, NewSlackAlerter(cfg.SlackWebhookURL))
+
+	if cfg.SlackWebhook != "" {
+		alerters = append(alerters, NewSlackAlerter(cfg.SlackWebhook))
 	}
-	if cfg.Email.Host != "" && cfg.Email.To != "" {
-		alerters = append(alerters, NewEmailAlerter(cfg.Email))
+	if cfg.WebhookURL != "" {
+		alerters = append(alerters, NewWebhookAlerter(cfg.WebhookURL))
+	}
+	if cfg.SMTPHost != "" && cfg.SMTPFrom != "" && cfg.SMTPTo != "" {
+		port := cfg.SMTPPort
+		if port == "" {
+			port = "25"
+		}
+		alerters = append(alerters, NewEmailAlerter(cfg.SMTPHost+":"+port, cfg.SMTPFrom, cfg.SMTPTo))
 	}
 	if len(alerters) == 0 {
-		return &NoopAlerter{}
+		return nil, fmt.Errorf("notify: no alerting destinations configured")
 	}
-	return NewMultiAlerter(alerters...)
+	return NewMultiAlerter(alerters...), nil
 }
