@@ -3,37 +3,40 @@ package notify
 import (
 	"fmt"
 	"net/smtp"
+	"strings"
 )
 
-// EmailConfig holds SMTP configuration for sending alert emails.
-type EmailConfig struct {
-	Host     string
-	Port     int
-	Username string
-	Password string
-	From     string
-	To       string
-}
-
-// EmailAlerter sends alert notifications via email.
+// EmailAlerter sends alert notifications via SMTP.
 type EmailAlerter struct {
-	cfg EmailConfig
+	host     string
+	port     string
+	username string
+	password string
+	from     string
+	to       []string
 }
 
-// NewEmailAlerter creates a new EmailAlerter with the given config.
-func NewEmailAlerter(cfg EmailConfig) *EmailAlerter {
-	return &EmailAlerter{cfg: cfg}
+// NewEmailAlerter constructs an EmailAlerter from the given config.
+func NewEmailAlerter(host, port, username, password, from string, to []string) *EmailAlerter {
+	return &EmailAlerter{
+		host:     host,
+		port:     port,
+		username: username,
+		password: password,
+		from:     from,
+		to:       to,
+	}
 }
 
-// Alert sends an email notification for the given job name and reason.
-func (e *EmailAlerter) Alert(jobName, reason string) error {
-	addr := fmt.Sprintf("%s:%d", e.cfg.Host, e.cfg.Port)
-	auth := smtp.PlainAuth("", e.cfg.Username, e.cfg.Password, e.cfg.Host)
+// Alert sends an email notification for an overdue job.
+func (e *EmailAlerter) Alert(jobName string) error {
+	addr := fmt.Sprintf("%s:%s", e.host, e.port)
+	auth := smtp.PlainAuth("", e.username, e.password, e.host)
 
-	subject := fmt.Sprintf("[cronitor-local] Alert: %s", jobName)
-	body := fmt.Sprintf("Job: %s\nReason: %s", jobName, reason)
-	msg := []byte(fmt.Sprintf("To: %s\r\nFrom: %s\r\nSubject: %s\r\n\r\n%s\r\n",
-		e.cfg.To, e.cfg.From, subject, body))
+	subject := fmt.Sprintf("Subject: [cronitor-local] Job overdue: %s\r\n", jobName)
+	headers := fmt.Sprintf("From: %s\r\nTo: %s\r\n", e.from, strings.Join(e.to, ", "))
+	body := fmt.Sprintf("\r\nAlert: cron job '%s' has not run within its expected schedule.\r\n", jobName)
+	msg := []byte(subject + headers + body)
 
-	return smtp.SendMail(addr, auth, e.cfg.From, []string{e.cfg.To}, msg)
+	return smtp.SendMail(addr, auth, e.from, e.to, msg)
 }
