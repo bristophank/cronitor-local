@@ -71,3 +71,20 @@ func TestIsOverdue(t *testing.T) {
 		t.Error("job should not be overdue when next run is in the future")
 	}
 }
+
+// TestRecordSuccessUpdatesLastSuccess verifies that each call to RecordSuccess
+// updates the LastSuccess timestamp to a time no earlier than before the call.
+func TestRecordSuccessUpdatesLastSuccess(t *testing.T) {
+	j := job.NewJob("test", "* * * * *", time.Minute)
+
+	before := time.Now()
+	j.RecordSuccess()
+	after := time.Now()
+
+	if j.LastSuccess == nil {
+		t.Fatal("LastSuccess should not be nil after RecordSuccess")
+	}
+	if j.LastSuccess.Before(before) || j.LastSuccess.After(after) {
+		t.Errorf("LastSuccess %v is outside expected range [%v, %v]", *j.LastSuccess, before, after)
+	}
+}
