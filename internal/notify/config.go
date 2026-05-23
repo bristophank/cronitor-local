@@ -3,50 +3,34 @@ package notify
 import (
 	"errors"
 	"os"
-	"strings"
 )
 
-// Config holds notification settings loaded from environment variables.
+// Config holds alerting configuration loaded from environment variables.
 type Config struct {
-	// Webhook
-	WebhookURL string
-
-	// Slack
+	WebhookURL      string
 	SlackWebhookURL string
-
-	// Email (SMTP)
-	SMTPHost     string
-	SMTPPort     string
-	SMTPUsername string
-	SMTPPassword string
-	EmailFrom    string
-	EmailTo      []string
+	EmailSMTP       string
+	EmailFrom       string
+	EmailTo         string
+	PagerDutyKey    string
+	OpsGenieKey     string
 }
 
-// LoadConfig reads notification configuration from environment variables.
+// LoadConfig reads alerting configuration from environment variables.
 func LoadConfig() Config {
-	var to []string
-	if raw := os.Getenv("ALERT_EMAIL_TO"); raw != "" {
-		for _, addr := range strings.Split(raw, ",") {
-			if t := strings.TrimSpace(addr); t != "" {
-				to = append(to, t)
-			}
-		}
-	}
 	return Config{
 		WebhookURL:      os.Getenv("ALERT_WEBHOOK_URL"),
 		SlackWebhookURL: os.Getenv("ALERT_SLACK_WEBHOOK_URL"),
-		SMTPHost:        os.Getenv("ALERT_SMTP_HOST"),
-		SMTPPort:        os.Getenv("ALERT_SMTP_PORT"),
-		SMTPUsername:    os.Getenv("ALERT_SMTP_USERNAME"),
-		SMTPPassword:    os.Getenv("ALERT_SMTP_PASSWORD"),
+		EmailSMTP:       os.Getenv("ALERT_EMAIL_SMTP"),
 		EmailFrom:       os.Getenv("ALERT_EMAIL_FROM"),
-		EmailTo:         to,
+		EmailTo:         os.Getenv("ALERT_EMAIL_TO"),
+		PagerDutyKey:    os.Getenv("ALERT_PAGERDUTY_KEY"),
+		OpsGenieKey:     os.Getenv("ALERT_OPSGENIE_KEY"),
 	}
 }
 
-// BuildAlerter constructs a MultiAlerter from the provided Config.
-// Returns an error if no alerters are configured.
+// BuildAlerter constructs a MultiAlerter from the given Config.
+// Returns an error if no alerting method is configured.
 func BuildAlerter(cfg Config) (Alerter, error) {
 	var alerters []Alerter
 
@@ -56,19 +40,18 @@ func BuildAlerter(cfg Config) (Alerter, error) {
 	if cfg.SlackWebhookURL != "" {
 		alerters = append(alerters, NewSlackAlerter(cfg.SlackWebhookURL))
 	}
-	if cfg.SMTPHost != "" && cfg.EmailFrom != "" && len(cfg.EmailTo) > 0 {
-		port := cfg.SMTPPort
-		if port == "" {
-			port = "587"
-		}
-		alerters = append(alerters, NewEmailAlerter(
-			cfg.SMTPHost, port, cfg.SMTPUsername, cfg.SMTPPassword,
-			cfg.EmailFrom, cfg.EmailTo,
-		))
+	if cfg.EmailSMTP != "" && cfg.EmailFrom != "" && cfg.EmailTo != "" {
+		alerters = append(alerters, NewEmailAlerter(cfg.EmailSMTP, cfg.EmailFrom, cfg.EmailTo))
+	}
+	if cfg.PagerDutyKey != "" {
+		alerters = append(alerters, NewPagerDutyAlerter(cfg.PagerDutyKey))
+	}
+	if cfg.OpsGenieKey != "" {
+		alerters = append(alerters, NewOpsGenieAlerter(cfg.OpsGenieKey))
 	}
 
 	if len(alerters) == 0 {
-		return nil, errors.New("no alerters configured: set at least one of ALERT_WEBHOOK_URL, ALERT_SLACK_WEBHOOK_URL, or SMTP settings")
+		return nil, errors.New("notify: no alerting method configured")
 	}
 	return NewMultiAlerter(alerters...), nil
 }
