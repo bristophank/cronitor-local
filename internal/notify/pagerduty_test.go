@@ -37,6 +37,9 @@ func TestPagerDutyAlerterSuccess(t *testing.T) {
 	if received.Payload.Severity != "error" {
 		t.Errorf("severity: got %q, want %q", received.Payload.Severity, "error")
 	}
+	if received.Payload.Summary == "" {
+		t.Error("expected non-empty payload summary")
+	}
 }
 
 func TestPagerDutyAlerterNon2xxReturnsError(t *testing.T) {
@@ -60,5 +63,32 @@ func TestPagerDutyAlerterUnreachableReturnsError(t *testing.T) {
 
 	if err := alerter.Alert("job", "msg"); err == nil {
 		t.Fatal("expected error for unreachable host")
+	}
+}
+
+func TestPagerDutyAlerterPayloadContainsJobAndMessage(t *testing.T) {
+	var received pdPayload
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	alerter := NewPagerDutyAlerter("key")
+	alerter.client.Transport = rewriteTransport(server.URL)
+
+	if err := alerter.Alert("nightly-backup", "overdue by 5m"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := received.Payload.Summary; got == "" {
+		t.Error("expected payload summary to be set")
+	}
+	// The summary should reference the job name so on-call engineers know what fired.
+	if got := received.Payload.Summary; !contains(got, "nightly-backup") {
+		t.Errorf("summary %q does not mention job name %q", got, "nightly-backup")
 	}
 }
