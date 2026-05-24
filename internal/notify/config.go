@@ -29,6 +29,15 @@ func LoadConfig() Config {
 	}
 }
 
+// IsConfigured reports whether at least one alerting method is fully configured.
+func (c Config) IsConfigured() bool {
+	return c.WebhookURL != "" ||
+		c.SlackWebhookURL != "" ||
+		(c.EmailSMTP != "" && c.EmailFrom != "" && c.EmailTo != "") ||
+		c.PagerDutyKey != "" ||
+		c.OpsGenieKey != ""
+}
+
 // BuildAlerter constructs a MultiAlerter from the given Config.
 // Returns an error if no alerting method is configured.
 func BuildAlerter(cfg Config) (Alerter, error) {
