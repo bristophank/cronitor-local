@@ -10,10 +10,14 @@ import (
 // intercept outbound HTTP calls without modifying production code.
 type hostRewriter struct {
 	baseURL string
+	transport http.RoundTripper
 }
 
 func rewriteTransport(baseURL string) http.RoundTripper {
-	return &hostRewriter{baseURL: strings.TrimRight(baseURL, "/")}
+	return &hostRewriter{
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		transport: http.DefaultTransport,
+	}
 }
 
 func (h *hostRewriter) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -33,5 +37,5 @@ func (h *hostRewriter) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned.Host = parts[0]
 	_ = original
 
-	return http.DefaultTransport.RoundTrip(cloned)
+	return h.transport.RoundTrip(cloned)
 }
