@@ -7,13 +7,12 @@ import (
 func TestBuildAlerterNoConfigReturnsError(t *testing.T) {
 	_, err := BuildAlerter(Config{})
 	if err == nil {
-		t.Fatal("expected error when no alerters configured, got nil")
+		t.Fatal("expected error when no alerter configured")
 	}
 }
 
 func TestBuildAlerterWithWebhook(t *testing.T) {
-	cfg := Config{WebhookURL: "https://example.com/hook"}
-	a, err := BuildAlerter(cfg)
+	a, err := BuildAlerter(Config{WebhookURL: "http://example.com/hook"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -23,8 +22,7 @@ func TestBuildAlerterWithWebhook(t *testing.T) {
 }
 
 func TestBuildAlerterWithSlack(t *testing.T) {
-	cfg := Config{SlackWebhookURL: "https://hooks.slack.com/services/TEST"}
-	a, err := BuildAlerter(cfg)
+	a, err := BuildAlerter(Config{SlackURL: "http://hooks.slack.com/test"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,12 +32,7 @@ func TestBuildAlerterWithSlack(t *testing.T) {
 }
 
 func TestBuildAlerterWithEmail(t *testing.T) {
-	cfg := Config{
-		SMTPHost:  "smtp.example.com",
-		SMTPPort:  "587",
-		EmailFrom: "alert@example.com",
-		EmailTo:   []string{"ops@example.com"},
-	}
+	cfg := Config{EmailSMTP: "smtp://localhost:25", EmailFrom: "a@b.com", EmailTo: "c@d.com"}
 	a, err := BuildAlerter(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -49,28 +42,38 @@ func TestBuildAlerterWithEmail(t *testing.T) {
 	}
 }
 
-func TestLoadConfigReadsEnv(t *testing.T) {
-	t.Setenv("ALERT_WEBHOOK_URL", "https://example.com/hook")
-	t.Setenv("ALERT_EMAIL_TO", "a@example.com, b@example.com")
-
-	cfg := LoadConfig()
-	if cfg.WebhookURL != "https://example.com/hook" {
-		t.Errorf("expected webhook URL, got %q", cfg.WebhookURL)
+func TestBuildAlerterWithGotify(t *testing.T) {
+	cfg := Config{GotifyURL: "http://gotify.local", GotifyToken: "abc123", GotifyPriority: 8}
+	a, err := BuildAlerter(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cfg.EmailTo) != 2 {
-		t.Errorf("expected 2 email recipients, got %d", len(cfg.EmailTo))
+	if a == nil {
+		t.Fatal("expected non-nil alerter")
 	}
 }
 
-func TestBuildAlerterEmailDefaultsPort(t *testing.T) {
-	cfg := Config{
-		SMTPHost:  "smtp.example.com",
-		EmailFrom: "alert@example.com",
-		EmailTo:   []string{"ops@example.com"},
+func TestBuildAlerterGotifyMissingTokenIgnored(t *testing.T) {
+	// Gotify requires both URL and token; only URL should not register it.
+	_, err := BuildAlerter(Config{GotifyURL: "http://gotify.local"})
+	if err == nil {
+		t.Fatal("expected error when only GotifyURL is set without token")
 	}
-	// Should not error — port defaults to 587
-	_, err := BuildAlerter(cfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+}
+
+func TestLoadConfigReadsEnv(t *testing.T) {
+	t.Setenv("GOTIFY_URL", "http://gotify.example.com")
+	t.Setenv("GOTIFY_TOKEN", "mytoken")
+	t.Setenv("GOTIFY_PRIORITY", "9")
+
+	cfg := LoadConfig()
+	if cfg.GotifyURL != "http://gotify.example.com" {
+		t.Errorf("unexpected GotifyURL: %s", cfg.GotifyURL)
+	}
+	if cfg.GotifyToken != "mytoken" {
+		t.Errorf("unexpected GotifyToken: %s", cfg.GotifyToken)
+	}
+	if cfg.GotifyPriority != 9 {
+		t.Errorf("unexpected GotifyPriority: %d", cfg.GotifyPriority)
 	}
 }
